@@ -1,0 +1,12 @@
+#!/bin/sh
+
+# Lua check: formatter verify.
+
+set -u
+fail=0
+
+if [ -n "$(git ls-files '*.lua')" ]; then
+	git ls-files -z '*.lua' | xargs -0 stylua --check || fail=1
+fi
+
+exit "$fail"
