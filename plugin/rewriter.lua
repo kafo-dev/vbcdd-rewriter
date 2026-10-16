@@ -8,5 +8,5 @@ vim.api.nvim_create_user_command("Rewrite", function(args)
 end, {
   range = true,
   nargs = "*",
-  desc = "Rewrite the visual selection with pi, as in :'<,'>Rewrite paraphrase this",
+  desc = "Rewrite the visual selection with the OpenAI API, as in :'<,'>Rewrite paraphrase this",
 })

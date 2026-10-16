@@ -1,14 +1,19 @@
---- `:Rewrite` — sends the visual selection to `pi` and writes the reply back
---- in place.
+--- `:Rewrite` — sends the visual selection to the OpenAI API and writes the
+--- reply back in place.
 
-local pi = require("rewriter.pi")
+local openai = require("rewriter.openai")
 local selection = require("rewriter.selection")
 
 local M = {}
 
 M.config = {
-  --- The `pi` executable. `exepath` picks up the `pi` wrapper on `PATH`.
-  pi_cmd = vim.fn.exepath("pi"),
+  --- The `curl` executable. `exepath` picks up `curl` on `PATH`.
+  curl_cmd = vim.fn.exepath("curl"),
+  --- The key comes from the environment, so it stays out of the repository.
+  api_key = vim.env.OPENAI_API_KEY or "",
+  model = "gpt-4o-mini",
+  --- Point this at another host to reach an OpenAI-compatible API.
+  base_url = "https://api.openai.com/v1",
   timeout_ms = 120000,
   max_prompt_bytes = 100 * 1024,
   system_prompt = table.concat({
@@ -106,8 +111,14 @@ function M.rewrite(args)
   end
 
   local prompt
-  prompt, err = pi.build_prompt(M.config, instruction, region.text)
+  prompt, err = openai.build_prompt(M.config, instruction, region.text)
   if not prompt then
+    notify(err, vim.log.levels.ERROR)
+    return
+  end
+
+  err = openai.validate(M.config)
+  if err then
     notify(err, vim.log.levels.ERROR)
     return
   end
@@ -117,7 +128,7 @@ function M.rewrite(args)
   in_flight[buf] = true
   notify("rewriting the selection...", vim.log.levels.INFO)
 
-  pi.run(M.config, prompt, { spawn = M.spawn }, function(stdout, failure)
+  openai.run(M.config, prompt, { spawn = M.spawn }, function(stdout, failure)
     in_flight[buf] = nil
     vim.schedule(function()
       apply(buf, region, tick, stdout, failure)

@@ -67,4 +67,18 @@ function H.any_match(collected, pattern)
   return false
 end
 
+--- Reads the `data` entry out of a `curl` config, undoing the escaping the
+--- module applied.
+--- @param config string
+--- @return string
+function H.curl_body(config)
+  local quoted = config:match("\ndata = (.*)\n")
+  assert(quoted, "the config must hold a data entry")
+  assert(quoted:sub(1, 1) == '"' and quoted:sub(-1) == '"', "the data entry must be quoted")
+
+  local unescaped = quoted:sub(2, -2):gsub('\\"', '"'):gsub("\\\\", "\\")
+  assert(#unescaped <= #quoted, "unescaping never grows the value")
+  return unescaped
+end
+
 return H

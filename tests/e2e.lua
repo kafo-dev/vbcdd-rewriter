@@ -1,7 +1,7 @@
 #!/usr/bin/env nvim --headless -u NONE -l
 
--- End-to-end run against a real `pi`, kept out of the check because it needs
--- the network and a configured provider:
+-- End-to-end run against the real API, kept out of the check because it
+-- needs the network, an API key, and a model that answers:
 --
 --   REWRITER_E2E=1 nvim --headless -u NONE -l tests/e2e.lua
 --
@@ -13,6 +13,11 @@ vim.opt.runtimepath:prepend(root)
 
 if vim.env.REWRITER_E2E ~= "1" then
   print("e2e: skipped; set REWRITER_E2E=1 to run")
+  os.exit(0)
+end
+
+if (vim.env.OPENAI_API_KEY or "") == "" then
+  print("e2e: skipped; set OPENAI_API_KEY to run")
   os.exit(0)
 end
 

@@ -1,6 +1,6 @@
 # vbcdd-rewriter
 
-Rewrite a visual selection with [`pi`](https://pi.dev). The `:Rewrite` command sends the selected text and the words after the command to the configured model, and replaces the selection in place with the reply.
+Rewrite a visual selection with the [OpenAI API](https://platform.openai.com/docs/api-reference/chat). The `:Rewrite` command sends the selected text and the words after the command to `POST /chat/completions`, and replaces the selection in place with the reply.
 
 > **Warning: Large Language Model-Generated Code**
 >
@@ -9,7 +9,8 @@ Rewrite a visual selection with [`pi`](https://pi.dev). The `:Rewrite` command s
 ## Requirements
 
 - Neovim 0.11 or later, for `vim.fn.getregionpos()`.
-- `pi` on `PATH`, with a provider configured. `pi auth check` reports the state.
+- `curl` on `PATH`, built with TLS.
+- An API key in `OPENAI_API_KEY`.
 
 ## Install
 
@@ -27,7 +28,7 @@ Select text with `v` for characters or `V` for whole lines, then run `:Rewrite` 
 :'<,'>Rewrite paraphrase this
 ```
 
-Visual mode fills in the `'<,'>` range; the instruction holds everything after `Rewrite`. The reply replaces the selection once `pi` answers, and the buffer stays untouched until then.
+Visual mode fills in the `'<,'>` range; the instruction holds everything after `Rewrite`. The reply replaces the selection once the API answers, and the buffer stays untouched until then.
 
 ## Configuration
 
@@ -35,18 +36,23 @@ Visual mode fills in the `'<,'>` range; the instruction holds everything after `
 
 ```lua
 require("rewriter").setup({
-  pi_cmd = vim.fn.exepath("pi"),
+  api_key = vim.env.OPENAI_API_KEY,
+  model = "gpt-4o-mini",
+  base_url = "https://api.openai.com/v1",
   timeout_ms = 120000,
   max_prompt_bytes = 100 * 1024,
 })
 ```
 
-| Option             | Default                | Meaning                                           |
-| ------------------ | ---------------------- | ------------------------------------------------- |
-| `pi_cmd`           | `vim.fn.exepath("pi")` | Executable that serves one rewrite.               |
-| `timeout_ms`       | `120000`               | Time limit for one request, in milliseconds.      |
-| `max_prompt_bytes` | `100 * 1024`           | Cap on the instruction plus the selected text.    |
-| `system_prompt`    | the plugin's own       | Replaces the default system prompt `pi` receives. |
+| Option             | Default                     | Meaning                                            |
+| ------------------ | --------------------------- | -------------------------------------------------- |
+| `curl_cmd`         | `vim.fn.exepath("curl")`    | Executable that serves one request.                |
+| `api_key`          | `vim.env.OPENAI_API_KEY`    | Bearer token.                                      |
+| `model`            | `gpt-4o-mini`               | Model that answers the request.                    |
+| `base_url`         | `https://api.openai.com/v1` | API root; another host serves a compatible API.    |
+| `timeout_ms`       | `120000`                    | Time limit for one request, in milliseconds.       |
+| `max_prompt_bytes` | `100 * 1024`                | Cap on the instruction plus the selected text.     |
+| `system_prompt`    | the plugin's own            | Replaces the default system message.               |
 
 ## Behavior
 
@@ -54,8 +60,9 @@ require("rewriter").setup({
 - An edit during a request leaves the buffer alone and moves the reply to the `"` register.
 - Charwise (`v`) and linewise (`V`) selections work. A blockwise selection (`<C-v>`) reports an error.
 - A prompt over `max_prompt_bytes` reports the size and the limit.
-- `pi` runs with `--no-session --no-tools --no-extensions --no-skills
---no-prompt-templates --no-context-files`, so one rewrite starts no session and touches no project files.
+- The request travels on `curl`'s stdin through `--config -`, so the key stays off the process list.
+- `curl` runs with `--silent --show-error`: the reply lands on stdout, and a transport failure on stderr.
+- The request holds two messages: the system prompt, then the instruction and the selection. The plugin reads the reply from the first choice.
 
 ## Development
 
