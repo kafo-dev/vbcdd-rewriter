@@ -18,6 +18,8 @@ local function configure(spawn)
     api_key = "sk-test",
     model = "gpt-test",
     base_url = "https://api.test/v1",
+    reasoning_effort = "",
+    extra_headers = {},
     system_prompt = "SYS",
   })
   rewriter.spawn = spawn
@@ -160,6 +162,22 @@ test(":Rewrite reports a failed run", function()
 
   ok(helper.any_match(notices, "code 1"), "the failure should reach the user")
   eq(helper.lines(), { "abcdefghij" }, "buffer")
+end)
+
+test(":Rewrite sends the configured headers and thinking level", function()
+  helper.buffer({ "abcdefghij" })
+  local record = {}
+  configure(hold(record))
+  rewriter.setup({ reasoning_effort = "low", extra_headers = { ["X-Title"] = "vbcdd" } })
+  helper.select(0, 2, "vlll")
+
+  vim.cmd("'<,'>Rewrite paraphrase this")
+
+  ok(record.opts.stdin:find('header = "X%-Title: vbcdd"'), "the extra header should reach the request")
+  eq(vim.json.decode(helper.curl_body(record.opts.stdin)).reasoning_effort, "low", "thinking level")
+
+  record.on_exit({ code = 0, signal = 0, stdout = reply("XY"), stderr = "" })
+  helper.drain()
 end)
 
 test(":Rewrite keeps the reply out of a buffer edited mid-request", function()

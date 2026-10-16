@@ -14,6 +14,11 @@ M.config = {
   model = "gpt-4o-mini",
   --- Point this at another host to reach an OpenAI-compatible API.
   base_url = "https://api.openai.com/v1",
+  --- The thinking level, sent as the API's `reasoning_effort`. Empty leaves
+  --- the field out for a model without reasoning.
+  reasoning_effort = "",
+  --- Extra request headers, as `name = value`.
+  extra_headers = {},
   timeout_ms = 120000,
   max_prompt_bytes = 100 * 1024,
   system_prompt = table.concat({

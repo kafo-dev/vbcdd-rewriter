@@ -42,7 +42,7 @@ local function quote(value)
 end
 
 --- Reports the first setting a request cannot run without. Everything but
---- `timeout_ms` and `max_prompt_bytes` holds a string.
+--- `timeout_ms`, `max_prompt_bytes`, and `extra_headers` holds a string.
 --- @param cfg table
 --- @return string|nil err
 function M.validate(cfg)
@@ -69,9 +69,48 @@ function M.validate(cfg)
   if cfg.system_prompt == nil or cfg.system_prompt == "" then
     return "system_prompt is empty: set system_prompt in setup()"
   end
+  if cfg.reasoning_effort == nil or type(cfg.reasoning_effort) ~= "string" then
+    return "reasoning_effort must be a string: set reasoning_effort in setup()"
+  end
+  if cfg.reasoning_effort:match("%s") then
+    return "reasoning_effort holds whitespace: " .. cfg.reasoning_effort
+  end
+
+  local err = M.validate_headers(cfg.extra_headers)
+  if err then
+    return err
+  end
 
   assert(cfg.timeout_ms > 0, "timeout_ms must be positive")
   assert(cfg.max_prompt_bytes > 0, "max_prompt_bytes must be positive")
+  return nil
+end
+
+--- Reports the first extra header a request cannot send. A name holds no
+--- whitespace and no colon, and a value holds no control character, so
+--- neither can break out of its `curl` config line.
+--- @param headers any
+--- @return string|nil err
+function M.validate_headers(headers)
+  if type(headers) ~= "table" then
+    return "extra_headers must be a table of name = value"
+  end
+
+  for name, value in pairs(headers) do
+    if type(name) ~= "string" or name == "" then
+      return "extra_headers holds a name that is not a string"
+    end
+    if name:match("[%s:]") then
+      return "extra_headers holds a name with whitespace or a colon: " .. name
+    end
+    if type(value) ~= "string" then
+      return "extra_headers holds a value that is not a string: " .. name
+    end
+    if value:match("%c") then
+      return "extra_headers holds a value with a control character: " .. name
+    end
+  end
+
   return nil
 end
 
@@ -126,6 +165,7 @@ function M.request_body(cfg, prompt)
   assert(type(prompt) == "string" and prompt ~= "", "prompt must be a non-empty string")
   assert(type(cfg.model) == "string" and cfg.model ~= "", "model must be set")
   assert(type(cfg.system_prompt) == "string", "system_prompt must be a string")
+  assert(type(cfg.reasoning_effort) == "string", "reasoning_effort must be a string")
 
   local body = {
     model = cfg.model,
@@ -134,10 +174,37 @@ function M.request_body(cfg, prompt)
       { role = "user", content = prompt },
     },
   }
+
+  -- An empty setting leaves the field out: a model without reasoning rejects
+  -- an unknown one.
+  if cfg.reasoning_effort ~= "" then
+    body.reasoning_effort = cfg.reasoning_effort
+  end
+
   local json = vim.json.encode(body)
 
   assert(#json > 0, "the encoded body must not be empty")
   return json
+end
+
+--- Collects the extra header names in a fixed order, because a Lua table
+--- iterates in no order a diff or a test can rely on.
+--- @param headers table
+--- @return string[] names
+local function header_names(headers)
+  assert(type(headers) == "table", "headers must be a table")
+
+  local names = {}
+  for name in pairs(headers) do
+    assert(type(name) == "string", "a header name must be a string")
+    names[#names + 1] = name
+  end
+  table.sort(names)
+
+  if #names > 0 then
+    assert(names[1] ~= "", "the first header name must not be empty")
+  end
+  return names
 end
 
 --- Builds the `curl` argument list. The request itself arrives on stdin.
@@ -168,12 +235,14 @@ function M.build_config(cfg, body)
     "request = " .. quote("POST"),
     "header = " .. quote("Content-Type: application/json"),
     "header = " .. quote("Authorization: Bearer " .. cfg.api_key),
-    "data = " .. quote(body),
   }
-  local config = table.concat(lines, "\n") .. "\n"
+  for _, name in ipairs(header_names(cfg.extra_headers)) do
+    lines[#lines + 1] = "header = " .. quote(name .. ": " .. cfg.extra_headers[name])
+  end
+  lines[#lines + 1] = "data = " .. quote(body)
 
-  assert(config:match("\ndata = ") ~= nil, "the body must be the last entry")
-  return config
+  assert(lines[#lines] == "data = " .. quote(body), "the body must be the last entry")
+  return table.concat(lines, "\n") .. "\n"
 end
 
 --- Reads the reply text out of a chat-completions response body. A transport

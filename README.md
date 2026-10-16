@@ -39,6 +39,8 @@ require("rewriter").setup({
   api_key = vim.env.OPENAI_API_KEY,
   model = "gpt-4o-mini",
   base_url = "https://api.openai.com/v1",
+  reasoning_effort = "low",
+  extra_headers = { ["X-Title"] = "vbcdd-rewriter" },
   timeout_ms = 120000,
   max_prompt_bytes = 100 * 1024,
 })
@@ -50,6 +52,8 @@ require("rewriter").setup({
 | `api_key`          | `vim.env.OPENAI_API_KEY`    | Bearer token.                                      |
 | `model`            | `gpt-4o-mini`               | Model that answers the request.                    |
 | `base_url`         | `https://api.openai.com/v1` | API root; another host serves a compatible API.    |
+| `reasoning_effort` | `""`                        | Thinking level, sent as `reasoning_effort`; empty omits the field. |
+| `extra_headers`    | `{}`                        | Request headers, as `name = value`.                |
 | `timeout_ms`       | `120000`                    | Time limit for one request, in milliseconds.       |
 | `max_prompt_bytes` | `100 * 1024`                | Cap on the instruction plus the selected text.     |
 | `system_prompt`    | the plugin's own            | Replaces the default system message.               |
@@ -63,6 +67,8 @@ require("rewriter").setup({
 - The request travels on `curl`'s stdin through `--config -`, so the key stays off the process list.
 - `curl` runs with `--silent --show-error`: the reply lands on stdout, and a transport failure on stderr.
 - The request holds two messages: the system prompt, then the instruction and the selection. The plugin reads the reply from the first choice.
+- `reasoning_effort` travels verbatim, so a model that lacks reasoning keeps its field only when the setting is non-empty. Values come from the API: `minimal`, `low`, `medium`, `high`.
+- An extra header whose name holds whitespace or a colon, or whose value holds a control character, reports an error instead of reaching `curl`.
 
 ## Development
 

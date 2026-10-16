@@ -8,6 +8,8 @@ local CFG = {
   api_key = "sk-test",
   model = "gpt-test",
   base_url = "https://api.test/v1",
+  reasoning_effort = "",
+  extra_headers = {},
   timeout_ms = 5000,
   max_prompt_bytes = 40,
   system_prompt = "SYS",
@@ -60,6 +62,31 @@ test("validate reports a base_url carrying whitespace", function()
   ok(openai.validate(cfg):match("whitespace"), "the refusal should name the whitespace")
 end)
 
+test("validate reports a thinking level carrying whitespace", function()
+  local cfg = vim.deepcopy(CFG)
+  cfg.reasoning_effort = "high up"
+
+  ok(openai.validate(cfg):match("reasoning_effort"), "the refusal should name the setting")
+end)
+
+test("validate reports extra headers it cannot send", function()
+  local cfg = vim.deepcopy(CFG)
+  cfg.extra_headers = { ["X-A"] = "a\nb" }
+
+  ok(openai.validate(cfg):match("control"), "the refusal should name the value")
+end)
+
+test("validate_headers accepts a value with a space", function()
+  is_nil(openai.validate_headers({ ["X-Title"] = "my tool" }), "err")
+end)
+
+test("validate_headers rejects what would break the config", function()
+  ok(openai.validate_headers({ ["X A"] = "1" }):match("whitespace"), "a name with whitespace")
+  ok(openai.validate_headers({ ["X-A:"] = "1" }):match("colon"), "a name with a colon")
+  ok(openai.validate_headers({ ["X-A"] = 3 }):match("not a string"), "a value that is not a string")
+  ok(openai.validate_headers("nope"):match("must be a table"), "headers that are not a table")
+end)
+
 test("endpoint appends the chat-completions path", function()
   eq(openai.endpoint(CFG), "https://api.test/v1/chat/completions")
 end)
@@ -93,6 +120,14 @@ test("request_body carries the model and both messages", function()
   eq(decoded.model, "gpt-test", "model")
   eq(decoded.messages[1], { role = "system", content = "SYS" }, "system message")
   eq(decoded.messages[2], { role = "user", content = "hello" }, "user message")
+  is_nil(decoded.reasoning_effort, "thinking level")
+end)
+
+test("request_body sends the thinking level it is given", function()
+  local cfg = vim.deepcopy(CFG)
+  cfg.reasoning_effort = "low"
+
+  eq(vim.json.decode(openai.request_body(cfg, "hello")).reasoning_effort, "low")
 end)
 
 test("build_argv reads the request from stdin", function()
@@ -131,6 +166,20 @@ test("build_config escapes quotes and backslashes", function()
   -- A plain find, so every backslash stays literal.
   local header = 'Authorization: Bearer sk-\\"quoted\\"\\\\"'
   ok(config:find(header, 1, true), "the key should survive the quoting")
+end)
+
+test("build_config appends the extra headers in name order", function()
+  local cfg = vim.deepcopy(CFG)
+  cfg.extra_headers = { ["X-Title"] = "vbcdd", ["OpenAI-Project"] = "proj_1" }
+  local config = openai.build_config(cfg, openai.request_body(cfg, "hello"))
+
+  local project = config:find('header = "OpenAI%-Project: proj_1"', 1)
+  local title = config:find('header = "X%-Title: vbcdd"', 1)
+  ok(project, "the project header must be present")
+  ok(title, "the title header must be present")
+  ok(project < title, "the headers must be sorted by name")
+  eq(select(2, config:gsub("header = ", "")), 4, "header lines")
+  eq(helper.curl_body(config), openai.request_body(cfg, "hello"), "the body stays last")
 end)
 
 test("parse_reply reads the first choice", function()
