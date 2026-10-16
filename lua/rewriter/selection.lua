@@ -43,23 +43,28 @@ function M.capture()
     return nil, err
   end
 
-  local bounds = vim.fn.getregionpos(start, stop, {
+  local positions = vim.fn.getregionpos(start, stop, {
     type = mode,
     bounds = true,
     eol = false,
-  })[1]
+  })
   local lines = vim.fn.getregion(start, stop, { type = mode })
 
+  assert(#positions >= 1, "a selection carries at least one region")
   assert(#lines >= 1, "a selection carries at least one line")
-  assert(#bounds == 2, "bounds carries a start and an end position")
+
+  -- One region per line: the selection spans the first line's start to the
+  -- last line's end.
+  local first = positions[1][1]
+  local last = positions[#positions][2]
 
   return {
     buf = buf,
     mode = mode,
-    start_row = bounds[1][2] - 1,
-    start_col = bounds[1][3] - 1,
-    end_row = bounds[2][2] - 1,
-    end_col = bounds[2][3],
+    start_row = first[2] - 1,
+    start_col = first[3] - 1,
+    end_row = last[2] - 1,
+    end_col = last[3],
     text = table.concat(lines, "\n"),
   }
 end
