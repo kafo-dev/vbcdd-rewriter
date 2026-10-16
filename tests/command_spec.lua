@@ -20,6 +20,7 @@ local function configure(spawn)
     base_url = "https://api.test/v1",
     reasoning_effort = "",
     extra_headers = {},
+    file_context = false,
     system_prompt = "SYS",
   })
   rewriter.spawn = spawn
@@ -178,6 +179,23 @@ test(":Rewrite sends the configured headers and thinking level", function()
 
   record.on_exit({ code = 0, signal = 0, stdout = reply("XY"), stderr = "" })
   helper.drain()
+end)
+
+test(":Rewrite sends the whole buffer when file_context is on", function()
+  helper.buffer({ "before", "abcdefghij", "after" })
+  local record = {}
+  configure(hold(record))
+  rewriter.setup({ file_context = true })
+  helper.select(1, 2, "vlll")
+
+  vim.cmd("'<,'>Rewrite paraphrase this")
+
+  local message = vim.json.decode(helper.curl_body(record.opts.stdin)).messages[2].content
+  eq(message, '<file path="unnamed buffer">\nbefore\nabcdefghij\nafter\n</file>\n\nparaphrase this\n\ncdef')
+
+  record.on_exit({ code = 0, signal = 0, stdout = reply("XY"), stderr = "" })
+  helper.drain()
+  eq(helper.lines(), { "before", "abXYghij", "after" }, "buffer")
 end)
 
 test(":Rewrite keeps the reply out of a buffer edited mid-request", function()

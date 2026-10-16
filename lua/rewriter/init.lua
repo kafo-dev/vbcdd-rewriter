@@ -19,7 +19,11 @@ M.config = {
   reasoning_effort = "",
   --- Extra request headers, as `name = value`.
   extra_headers = {},
+  --- Send the whole buffer ahead of the selection, so the model reads the
+  --- text in place.
+  file_context = false,
   timeout_ms = 120000,
+  --- Cap on one request: the context, the instruction, and the selection.
   max_prompt_bytes = 100 * 1024,
   system_prompt = table.concat({
     "Rewrite text on request from a text editor.",
@@ -96,6 +100,18 @@ local function apply(buf, region, tick, stdout, failure)
   notify("done", vim.log.levels.INFO)
 end
 
+--- Reads the whole buffer as one string, the file the selection sits in.
+--- @param buf integer
+--- @return string
+local function buffer_text(buf)
+  assert(vim.api.nvim_buf_is_valid(buf), "the buffer must still exist")
+
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  assert(#lines >= 1, "a buffer holds at least one line")
+
+  return table.concat(lines, "\n")
+end
+
 --- The `:Rewrite` callback. Everything after the command names the work to do.
 --- @param args table from `nvim_create_user_command`
 function M.rewrite(args)
@@ -115,8 +131,13 @@ function M.rewrite(args)
     return
   end
 
+  local context = ""
+  if M.config.file_context then
+    context = openai.build_context(vim.api.nvim_buf_get_name(buf), buffer_text(buf))
+  end
+
   local prompt
-  prompt, err = openai.build_prompt(M.config, instruction, region.text)
+  prompt, err = openai.build_prompt(M.config, instruction, region.text, context)
   if not prompt then
     notify(err, vim.log.levels.ERROR)
     return

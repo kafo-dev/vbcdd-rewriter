@@ -41,6 +41,7 @@ require("rewriter").setup({
   base_url = "https://api.openai.com/v1",
   reasoning_effort = "low",
   extra_headers = { ["X-Title"] = "vbcdd-rewriter" },
+  file_context = true,
   timeout_ms = 120000,
   max_prompt_bytes = 100 * 1024,
 })
@@ -54,8 +55,9 @@ require("rewriter").setup({
 | `base_url`         | `https://api.openai.com/v1` | API root; another host serves a compatible API.    |
 | `reasoning_effort` | `""`                        | Thinking level, sent as `reasoning_effort`; empty omits the field. |
 | `extra_headers`    | `{}`                        | Request headers, as `name = value`.                |
+| `file_context`     | `false`                     | Send the whole buffer ahead of the selection.      |
 | `timeout_ms`       | `120000`                    | Time limit for one request, in milliseconds.       |
-| `max_prompt_bytes` | `100 * 1024`                | Cap on the instruction plus the selected text.     |
+| `max_prompt_bytes` | `100 * 1024`                | Cap on one request: the context, the instruction, and the selection. |
 | `system_prompt`    | the plugin's own            | Replaces the default system message.               |
 
 ## Behavior
@@ -66,7 +68,10 @@ require("rewriter").setup({
 - A prompt over `max_prompt_bytes` reports the size and the limit.
 - The request travels on `curl`'s stdin through `--config -`, so the key stays off the process list.
 - `curl` runs with `--silent --show-error`: the reply lands on stdout, and a transport failure on stderr.
-- The request holds two messages: the system prompt, then the instruction and the selection. The plugin reads the reply from the first choice.
+- The request holds two messages: the system prompt, then one user message with the instruction and the selection. The plugin reads the reply from the first choice.
+- `file_context` puts the whole buffer into that user message first, inside `<file path="…">` tags, and adds a sentence to the system message that names those tags as context. The model then reads the selection in place.
+- `max_prompt_bytes` counts the context, the instruction, and the selection together.
+- One request carries one instruction. The plugin keeps no conversation: the model sees no earlier instruction, selection, or reply, and the buffer is the only place a reply lands.
 - `reasoning_effort` travels verbatim, so a model that lacks reasoning keeps its field only when the setting is non-empty. Values come from the API: `minimal`, `low`, `medium`, `high`.
 - An extra header whose name holds whitespace or a colon, or whose value holds a control character, reports an error instead of reaching `curl`.
 

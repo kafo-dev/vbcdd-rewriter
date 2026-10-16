@@ -42,7 +42,8 @@ local function quote(value)
 end
 
 --- Reports the first setting a request cannot run without. Everything but
---- `timeout_ms`, `max_prompt_bytes`, and `extra_headers` holds a string.
+--- `timeout_ms`, `max_prompt_bytes`, and `extra_headers` holds a string, and
+--- `file_context` holds a boolean.
 --- @param cfg table
 --- @return string|nil err
 function M.validate(cfg)
@@ -74,6 +75,12 @@ function M.validate(cfg)
   end
   if cfg.reasoning_effort:match("%s") then
     return "reasoning_effort holds whitespace: " .. cfg.reasoning_effort
+  end
+  if type(cfg.file_context) ~= "boolean" then
+    return "file_context must be a boolean: set file_context in setup()"
+  end
+  if type(cfg.file_context) ~= "boolean" then
+    return "file_context must be a boolean: set file_context in setup()"
   end
 
   local err = M.validate_headers(cfg.extra_headers)
@@ -129,26 +136,71 @@ function M.endpoint(cfg)
   return url
 end
 
---- Builds the prompt from an instruction and the selected text. The blank
---- line between them is the framing the system prompt describes.
+--- The system-prompt sentence that describes a request carrying the file.
+local FILE_FRAMING = table.concat({
+  "The message may open with the whole file in <file> tags.",
+  "Treat that part as context: never rewrite it, never repeat it.",
+  "Rewrite the selection that follows the instruction.",
+}, " ")
+
+--- Builds the system message. A request that carries the file says so, so the
+--- model knows which part to rewrite.
+--- @param cfg table
+--- @return string
+function M.system_message(cfg)
+  assert(type(cfg) == "table", "cfg must be a table")
+  assert(type(cfg.system_prompt) == "string" and cfg.system_prompt ~= "", "system_prompt must be set")
+
+  if not cfg.file_context then
+    return cfg.system_prompt
+  end
+
+  assert(type(FILE_FRAMING) == "string" and FILE_FRAMING ~= "", "the framing must be set")
+  return cfg.system_prompt .. " " .. FILE_FRAMING
+end
+
+--- Frames one file as context ahead of the prompt.
+--- @param path string buffer name, empty for an unnamed buffer
+--- @param text string whole file
+--- @return string context
+function M.build_context(path, text)
+  assert(type(path) == "string", "path must be a string")
+  assert(type(text) == "string", "text must be a string")
+
+  local name = path ~= "" and path or "unnamed buffer"
+  local context = string.format("<file path=%q>\n%s\n</file>\n\n", name, text)
+
+  assert(#context > #text, "the tags must wrap the text")
+  return context
+end
+
+--- Builds the prompt from an instruction and the selected text, behind the
+--- optional file context. The blank line between the instruction and the
+--- selection is the framing the system prompt describes.
 --- @param cfg table
 --- @param instruction string
 --- @param selection string
+--- @param context string|nil the file, already framed
 --- @return string|nil prompt
 --- @return string|nil err
-function M.build_prompt(cfg, instruction, selection)
+function M.build_prompt(cfg, instruction, selection, context)
   assert(type(cfg) == "table", "cfg must be a table")
   assert(type(instruction) == "string", "instruction must be a string")
   assert(type(selection) == "string", "selection must be a string")
+  assert(context == nil or type(context) == "string", "context must be a string")
 
   if instruction == "" then
     return nil, "empty instruction: write what to do, as in :Rewrite paraphrase this"
   end
 
-  local prompt = instruction .. "\n\n" .. selection
+  local prompt = (context or "") .. instruction .. "\n\n" .. selection
   if #prompt > cfg.max_prompt_bytes then
     return nil,
-      string.format("prompt is %d bytes, over the %d byte limit: select less text", #prompt, cfg.max_prompt_bytes)
+      string.format(
+        "prompt is %d bytes, over the %d byte limit: select less text, or turn file_context off",
+        #prompt,
+        cfg.max_prompt_bytes
+      )
   end
 
   assert(prompt ~= "", "prompt must not be empty")
@@ -170,7 +222,7 @@ function M.request_body(cfg, prompt)
   local body = {
     model = cfg.model,
     messages = {
-      { role = "system", content = cfg.system_prompt },
+      { role = "system", content = M.system_message(cfg) },
       { role = "user", content = prompt },
     },
   }

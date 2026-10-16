@@ -10,6 +10,7 @@ local CFG = {
   base_url = "https://api.test/v1",
   reasoning_effort = "",
   extra_headers = {},
+  file_context = false,
   timeout_ms = 5000,
   max_prompt_bytes = 40,
   system_prompt = "SYS",
@@ -98,6 +99,53 @@ test("endpoint drops a trailing slash", function()
   eq(openai.endpoint(cfg), "https://api.test/v1/chat/completions")
 end)
 
+test("build_context frames the file behind its path", function()
+  local context = openai.build_context("/tmp/notes.md", "one\ntwo")
+
+  eq(context, '<file path="/tmp/notes.md">\none\ntwo\n</file>\n\n')
+end)
+
+test("build_context names an unnamed buffer", function()
+  local context = openai.build_context("", "one")
+
+  eq(context, '<file path="unnamed buffer">\none\n</file>\n\n')
+end)
+
+test("system_message describes the file only when it travels", function()
+  eq(openai.system_message(CFG), "SYS")
+
+  local cfg = vim.deepcopy(CFG)
+  cfg.file_context = true
+  local message = openai.system_message(cfg)
+
+  ok(message:match("^SYS "), "the configured prompt comes first: " .. message)
+  ok(message:match("<file> tags"), "the framing should name the tags: " .. message)
+end)
+
+test("build_prompt puts the context ahead of the instruction", function()
+  local cfg = vim.deepcopy(CFG)
+  cfg.max_prompt_bytes = 1024
+  local context = openai.build_context("/tmp/a.txt", "body")
+
+  eq(openai.build_prompt(cfg, "paraphrase this", "cdef", context), context .. "paraphrase this\n\ncdef")
+  eq(openai.build_prompt(cfg, "paraphrase this", "cdef"), "paraphrase this\n\ncdef")
+end)
+
+test("build_prompt counts the context toward the byte cap", function()
+  local context = openai.build_context("/tmp/a.txt", string.rep("x", 40))
+  local prompt, err = openai.build_prompt(CFG, "paraphrase this", "cdef", context)
+
+  is_nil(prompt, "prompt")
+  ok(err:match("file_context off"), "the error should name the setting: " .. tostring(err))
+end)
+
+test("validate reports a file_context that is not a boolean", function()
+  local cfg = vim.deepcopy(CFG)
+  cfg.file_context = "yes"
+
+  ok(openai.validate(cfg):match("file_context"), "the refusal should name the setting")
+end)
+
 test("build_prompt frames the instruction above the selection", function()
   eq(openai.build_prompt(CFG, "paraphrase this", "cdef"), "paraphrase this\n\ncdef")
 end)
@@ -128,6 +176,15 @@ test("request_body sends the thinking level it is given", function()
   cfg.reasoning_effort = "low"
 
   eq(vim.json.decode(openai.request_body(cfg, "hello")).reasoning_effort, "low")
+end)
+
+test("request_body carries the file framing when the file travels", function()
+  local cfg = vim.deepcopy(CFG)
+  cfg.file_context = true
+
+  local message = vim.json.decode(openai.request_body(cfg, "hello")).messages[1].content
+  eq(message, openai.system_message(cfg))
+  ok(message:match("<file> tags"), "the system message should name the tags: " .. message)
 end)
 
 test("build_argv reads the request from stdin", function()
